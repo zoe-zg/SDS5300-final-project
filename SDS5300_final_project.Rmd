@@ -1,0 +1,639 @@
+---
+title: "final project Winning Formula: An Analysis of F1 Race Success (2010-2024)"
+author: "Andrew Fouty, Zoe Zhang"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+# load library
+library(tidyverse)
+library(car)
+library(boot)
+library(ggplot2)
+library(dplyr)
+library(corrplot)
+library(leaps)
+library(MASS)
+```
+
+# 1. Introduction
+
+Questions:
+
+Is qualifying position a good predictor of race results? 
+are the big teams (Red Bull, Ferrari, McLauren, Mercedes) faster than the rest of the field.
+
+
+season champion: 
+1) get raceid from f1_races, max(round) by `year`
+2) get driverid from f1_driver_standings, filter on raceid from step 1 and position =1
+
+
+```{r}
+
+
+
+```
+
+
+# 2. Data cleaning and preparation
+
+The data comes from [Formula 1 World Championship (1950 - 2024)] (https://www.kaggle.com/datasets/rohanrao/formula-1-world-championship-1950-2020).
+The dataset consists of all information on the Formula 1 races, drivers, constructors, qualifying, circuits, lap times, pit stops, championships from 1950 till the latest 2024 season.
+
+Looking at races since year 2010 (modern era)
+note: this Kaggle/Ergast dataset uses the string ("\N") for missing data. we would need to handle this specifically, making sure numeric columns are numeric as they're supposed to
+
+
+```{r}
+# Load datasets
+base_url <- "https://raw.githubusercontent.com/zoe-zg/SDS5300-final-project/main/data/"
+
+f1_results <- read.csv(paste0(base_url, "results.csv"), na.strings = "\\N")
+f1_constructor_results <- read.csv(paste0(base_url, "constructor_results.csv"), na.strings = "\\N")
+f1_races <- read.csv(paste0(base_url, "races.csv"), na.strings = "\\N")
+f1_drivers <- read.csv(paste0(base_url, "drivers.csv"), na.strings = "\\N")
+f1_constructors <- read.csv(paste0(base_url, "constructors.csv"), na.strings = "\\N")
+f1_driver_standings <- read.csv(paste0(base_url, "driver_standings.csv"), na.strings = "\\N")
+f1_constructor_standings <- read.csv(paste0(base_url, "constructor_standings.csv"), na.strings = "\\N")
+f1_quali <- read.csv(paste0(base_url, "qualifying.csv"), na.strings = "\\N")
+f1_lap_times <- read.csv(paste0(base_url, "lap_times.csv"), na.strings = "\\N")
+f1_pit_stops <- read.csv(paste0(base_url, "pit_stops.csv"), na.strings = "\\N")
+# f1_status <- read.csv(paste0(base_url, "status.csv"), na.strings = "\\N")
+# f1_seasons <- read.csv(paste0(base_url, "seasons.csv"), na.strings = "\\N")
+
+f1_pit_summary <- f1_pit_stops %>% 
+  group_by(raceId, driverId) %>% 
+  summarize(duration = mean(milliseconds)/1000)
+
+# Merge datasets
+f1_data <- f1_results %>%  
+  left_join(f1_races, by = "raceId") %>%
+  left_join(f1_drivers, by = "driverId") %>%
+  left_join(f1_constructors, by = "constructorId") %>% 
+  left_join(f1_pit_summary, by = c("raceId", "driverId")) %>% 
+  rename(driver_nationality = nationality.x, constructor_nationality = nationality.y) %>% 
+  dplyr::select(raceId, year, round, driverId, circuitId, grid, positionOrder, points, 
+         driverRef, constructorRef, driver_nationality, constructor_nationality,
+         statusId, laps, fastestLapSpeed, fastestLapTime, fastestLap, dob, milliseconds, round, duration) 
+
+# f1_driver_standings <- f1_driver_standings %>% 
+#   left_join(f1_drivers, by = "driverId")
+
+
+```
+
+
+```{r}
+
+# Text Character Replacement / Cleaning
+f1_clean <- f1_data %>% 
+  filter(year >= 2010) %>%
+  mutate(driverRef = as.factor(driverRef),
+         constructorRef = as.factor(constructorRef),
+         # create a binary variable for logistic regression
+         # did the driver score points (top 10 finish)
+         is_points = ifelse(positionOrder <= 10, 1, 0),
+         is_points = as.factor(is_points), 
+         # did the driver finish on the podium (top 3 finish)
+         is_podium = ifelse(positionOrder <=3, 1, 0),
+         is_podium = as.factor(is_podium),
+         fastestLapSpeed = as.numeric(as.character(fastestLapSpeed)),
+         age = year - as.numeric(substr(dob, 1, 4)),
+         positionOrder = positionOrder,
+         ) %>% 
+  # missing values
+  drop_na(grid, positionOrder)
+  
+# dim(f1_clean)
+# str(f1_clean)
+# head(f1_clean)
+# unique(f1_data$constructorRef)
+```
+
+# 3. Explorative Analysis
+
+- Histogram 
+- Boxplot 
+- Scatterplot 
+- Q-Q plot 
+
+```{r}
+par(mfrow=c(2,2)) # Set up a 2x2 plotting grid
+
+# 1. Histogram: Distribution of Fastest Lap Speeds
+hist(f1_clean$fastestLapSpeed, 
+     main = "Histogram of Fastest Lap Speeds", 
+     xlab = "Speed (km/h)", col = "skyblue", border = "white")
+
+# 2. Boxplot: Starting Grid Position vs. Did they Score Points?
+boxplot(grid ~ is_points, data = f1_clean,
+        main = "Grid Position vs. Points Finish",
+        xlab = "Scored Points (0=No, 1=Yes)", ylab = "Grid Position",
+        col = c("lightcoral", "lightgreen"))
+
+
+boxplot(grid ~ driverRef , data = f1_clean,
+        main = "Grid Position vs. Points Finish",
+        xlab = "Scored Points (0=No, 1=Yes)", ylab = "Grid Position",
+        col = c("lightcoral", "lightgreen"))
+
+# 3. Scatterplot: Grid Position vs. Finishing Position
+plot(f1_clean$grid, f1_clean$positionOrder,
+     main = "Scatterplot: Grid vs. Finish",
+     xlab = "Starting Grid Position", ylab = "Finishing Position",
+     pch = 19, col = rgb(0,0,0,0.2)) # Use alpha for overlapping points
+
+# 4. Normal Quantile Plot (QQ Plot)
+# Checking if Lap Speeds are normally distributed
+qqnorm(f1_clean$fastestLapSpeed, main = "QQ Plot: Lap Speeds")
+qqline(f1_clean$fastestLapSpeed, col = "red")
+
+par(mfrow=c(1,1)) # Reset plot window
+```
+
+
+
+Identify and visualize the dominance of top teams in the modern era
+
+```{r}
+# top 10 activity teams
+top_teams <- f1_clean %>%
+  count(constructorRef, sort = TRUE) %>%
+  top_n(10) %>%
+  pull(constructorRef)
+
+par(mar = c(8,4,4,2))
+boxplot(positionOrder ~ constructorRef, 
+        data = f1_clean %>% filter(constructorRef %in% top_10_teams),
+        main = "Finishing Position by Team (2010-2020)",
+        ylab = "Finishing Position",
+        col = "lightblue",
+        las = 2) 
+
+f1_clean %>%
+  filter(constructorRef %in% top_teams) %>% 
+  mutate(constructorRef = reorder(constructorRef, positionOrder, median)) %>% 
+  ggplot(aes(x = constructorRef, y = positionOrder, fill = constructorRef)) +
+  geom_boxplot(ooutlier.alpha = 0.3) +
+  labs(title = "Finishing Position Distribution by Team (2010-2024)",
+       subtitle = "Ordered by Median Finishing Position (Lower is Better)",
+       x = "Team",
+       y = "Finishing Position") +
+  theme_minimal() +
+  coord_flip() 
+
+```
+
+```{r}
+
+
+
+```
+
+
+##### histogram and normal quantile
+```{r}
+
+ggplot(f1_clean, aes(x = fastestLapSpeed)) +
+  geom_histogram(binwidth = 5, fill = "steelblue", color = "white") +
+  labs(title = "Distribution of Fastest Lap Speeds", x = "Speed (km/h)", y = "Count") +
+  theme_minimal()
+
+
+ggplot(f1_clean, aes(x = age)) +
+  geom_histogram(binwidth = 1, fill = "steelblue", color = "white") +
+  labs(title = "Distribution of Driver's Age", x = "", y = "") +
+  theme_minimal()
+
+ggplot(f1_clean, aes(x = fastestLapTime)) +
+  geom_histogram(binwidth = , fill = "steelblue", color = "white") +
+  labs(title = "", x = "", y = "") +
+  theme_minimal()
+
+
+```
+
+
+
+
+# 4. Basic Tests
+
+question: does driver's performance vary across consstructors, possibly Alonso, Renault and Ferrari
+-	median starting position vs is_podium
+-	driver’s mean fastestlaptime, at different teams, e.g. Alonso
+
+##### t-test, bootstrap, permutation
+
+```{r}
+
+```
+
+
+```{r}
+
+
+```
+
+
+##### correlation
+fastest lap time vs driver's age
+
+
+```{r}
+
+# cor_est <- cor(f1_clean$grid, f1_clean$positionOrder)
+# print(paste("Pearson Correlation:", round(cor_est, 3)))
+
+# f1_clean_sub %>%
+#   filter(driverRef %in% top_teams)
+
+plot(jitter(grid, factor = 2) ~ jitter(positionOrder, factor = 2), data = f1_clean_alonso, main = "", 
+     xlab = "", ylab = "", pch = 19, col = "blue")
+abline(lm(grid ~ positionOrder, data = f1_clean_alonso), col = "red")
+
+
+lm_alonso <- lm(grid ~ positionOrder, data = f1_clean_alonso)
+summary(lm_alonso)
+
+r <- rstudent(lm_alonso)
+f <- fitted(lm_alonso)
+
+plot(r ~ f)
+
+source("https://raw.githubusercontent.com/jreuning/sds230_files/refs/heads/main/regJDRS.txt")
+myResPlots(lm_alonso, label = "")
+
+# f1_clean_alonso <- f1_clean[f1_clean$driverRef == "alonso", ]
+# 
+# plot(jitter(fastestLapSpeed) ~ jitter(age), data = f1_clean_hamiltom, main = "", 
+#      xlab = "", ylab = "", pch = 19, col = "blue")
+# abline(lm(fastestLapSpeed ~ age, data = f1_clean_hamiltom), col = "red")
+# 
+# 
+# plot(jitter(grid) ~ jitter(age), data = f1_clean_hamiltom, main = "", 
+#      xlab = "", ylab = "", pch = 19, col = "blue")
+# abline(lm(grid ~ age, data = f1_clean_hamiltom), col = "red")
+
+```
+
+
+
+
+```{r}
+
+# --- Comparison of Top Drivers ---
+top_drivers <- c("hamilton", "vettel", "alonso", "max_verstappen", "norris", "piastri", "leclerc", "russell", "sainz", "michael_schumacher")
+
+f1_clean %>%
+  filter(driverRef %in% top_drivers) %>%
+  ggplot(aes(x = grid, y = positionOrder, color = driverRef)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(title = "Qualifying vs. Race Result: Top Drivers Comparison",
+       x = "Starting Grid Position",
+       y = "Finishing Position") +
+  theme_minimal() +
+  facet_wrap(~driverRef) # Create separate plot for each driver
+
+
+# dataset
+f1_driver_data <- f1_clean %>% 
+  filter(driverRef %in% top_drivers) %>%
+  left_join(f1_driver_standings %>% select(raceId, driverId, position), 
+            by = c("raceId", "driverId"), suffix = c("", "_standing")) %>%
+  mutate(fastestLapSpeed = as.numeric(as.character(fastestLapSpeed)))
+            
+
+cor_data <- f1_driver_data %>%
+  select(grid, positionOrder, fastestLapSpeed, points) %>%
+  drop_na()
+
+  
+  corrplot(cor(cor_data), method = "circle", type = "upper", 
+         title = "Correlation Matrix: Top Drivers (2010-2020)", 
+         mar = c(0,0,2,0), 
+         addCoef.col = "black") # Add numbers
+```
+
+
+
+# 5. Multiple Linear Regression (Stepwise)
+
+
+```{r}
+
+# Prepare data for model (filter to top teams to handle categorical levels)
+model_data <- f1_clean %>%
+  filter(constructorRef %in% top_teams) %>%
+  select(positionOrder, grid, constructorRef, year) %>%
+  drop_na()
+
+# Full Model
+full_lm <- lm(positionOrder ~ grid + constructorRef + year, data = model_data)
+
+# Backward Stepwise Selection
+step_lm <- step(full_lm, direction = "backward", trace = 0) # trace=0 hides output
+summary(step_lm)
+
+```
+
+```{r}
+par(mfrow=c(2,2))
+plot(step_lm)
+
+```
+
+
+
+
+
+
+
+
+Top 15 fastest circuits
+```{r}
+top_15_names <- f1_clean %>%
+  group_by(name) %>%
+  summarise(mean_speed = mean(fastestLapSpeed)) %>%
+  slice_max(mean_speed, n = 15) %>%
+  pull(name)
+
+top_15_data <- circuit_speeds %>% filter(name %in% top_15_names)
+
+ggplot(top_15_data, aes(x = reorder(name, fastestLapSpeed), y = fastestLapSpeed, fill = name)) +
+  # The Violin shows the distribution shape (density)
+  geom_violin(trim = FALSE, alpha = 0.6) +
+
+  # Adding a narrow boxplot inside gives you the median/quartiles (Best of both worlds)
+  geom_boxplot(width = 0.1, fill = "white", outlier.shape = NA) +
+  
+  coord_flip() + # Horizontal is easier to read
+  
+  labs(title = "Top 15 Fastest F1 Circuits (Violin Plot)",
+       subtitle = "Shape represents distribution of lap speeds. White bar is the interquartile range.",
+       x = NULL,
+       y = "Fastest Lap Speed (km/h)") +
+  theme_minimal() +
+  theme(legend.position = "none")
+  
+# distribution of speeds of all races
+ggplot(circuit_speeds, aes(x = fastestLapSpeed)) +
+  geom_histogram(binwidth = 5, fill = "steelblue", color = "white", alpha = 0.7) +
+  labs(title = "Distribution of Fastest Lap Speeds Across All Races",
+       x = "Speed (km/h)",
+       y = "Count") +
+  theme_minimal()
+```
+
+
+
+```{r}
+# Top 5 Teams only (to keep categorical variables manageable)
+
+f1_final <- f1_clean %>%
+  filter(constructorRef %in% top_teams) %>%
+  droplevels()
+
+# --- 2. Graphics ---
+par(mfrow=c(2,2)) # Set up 2x2 plotting grid
+
+# 1. Scatterplot: Grid vs Finish
+plot(positionOrder ~ grid, data = f1_final, main = "Grid vs. Finish Position", 
+     xlab = "Grid Position", ylab = "Finish Position", pch = 19, col = "blue")
+abline(lm(positionOrder ~ grid, data = f1_final), col = "red")
+
+# 2. Boxplot: Finish by Team
+boxplot(positionOrder ~ constructorRef, data = f1_final, main = "Finish by Team", 
+        las = 2, col = "lightblue")
+
+# 3. Histogram: Distribution of Grid Positions
+hist(f1_final$grid, main = "Distribution of Grid Positions", 
+     xlab = "Grid Position", col = "lightgreen", border = "white")
+
+# 4. Normal Quantile Plot (on residuals of a simple model)
+simple_model <- lm(positionOrder ~ grid, data = f1_final)
+qqnorm(residuals(simple_model), main = "Normal Q-Q Plot of Residuals")
+qqline(residuals(simple_model), col = "red")
+
+par(mfrow=c(1,1)) # Reset plotting grid
+
+# --- 3. Basic Tests ---
+# 1. T-test: Compare average finish position of Mercedes vs. Ferrari
+mercedes_pos <- f1_final$positionOrder[f1_final$constructorRef == "mercedes"]
+ferrari_pos <- f1_final$positionOrder[f1_final$constructorRef == "ferrari"]
+
+t_test_result <- t.test(mercedes_pos, ferrari_pos)
+print(t_test_result)
+# Interpretation: If p-value < 0.05, there is a significant difference in mean finish position.
+
+# 2. Correlation
+cor_val <- cor(f1_final$grid, f1_final$positionOrder)
+cat("Correlation between Grid and Finish:", cor_val, "\n")
+
+# 3. Bootstrap CI for Correlation
+corr_fun <- function(data, indices) {
+  d <- data[indices, ]
+  return(cor(d$grid, d$positionOrder))
+}
+set.seed(123)
+boot_results <- boot(data = f1_final, statistic = corr_fun, R = 1000)
+print(boot.ci(boot_results, type = "perc"))
+
+# --- 4. Permutation Test ---
+# Hypothesis: Does Lewis Hamilton finish significantly better (lower position) than the average of all other drivers?
+# Test Statistic: Difference in means (Others - Hamilton). Positive value means Hamilton is better (lower score).
+
+obs_diff <- mean(f1_final$positionOrder[f1_final$driverRef != "hamilton"]) - 
+            mean(f1_final$positionOrder[f1_final$driverRef == "hamilton"])
+
+cat("Observed Difference (Others - Hamilton):", obs_diff, "\n")
+
+```
+
+
+ Permutation test
+```{r}
+# Permutation Loop
+set.seed(123)
+n_perms <- 1000
+perm_diffs <- numeric(n_perms)
+all_positions <- f1_final$positionOrder
+
+for (i in 1:n_perms) {
+  # Shuffle the positions
+  shuffled_pos <- sample(all_positions)
+  
+  # Assign shuffled positions to groups based on original indices
+  # (We keep the group sizes fixed: Hamilton vs Others)
+  hamilton_indices <- which(f1_final$driverRef == "hamilton")
+  
+  mean_hamilton_perm <- mean(shuffled_pos[hamilton_indices])
+  mean_others_perm <- mean(shuffled_pos[-hamilton_indices])
+  
+  perm_diffs[i] <- mean_others_perm - mean_hamilton_perm
+}
+
+# P-value: Proportion of permutations where the difference is as extreme or more extreme than observed
+p_value <- mean(perm_diffs >= obs_diff)
+cat("Permutation Test P-value:", p_value, "\n")
+hist(perm_diffs, main = "Permutation Distribution", xlab = "Difference in Means", col = "gray")
+abline(v = obs_diff, col = "red", lwd = 2)
+
+```
+
+
+Multiple Regression 
+```{r}
+# --- 5. Multiple Regression ---
+# Using Stepwise Regression (Backward)
+# Model: Predict Finish Position based on Grid, Team, and Year
+full_model <- lm(positionOrder ~ grid + constructorRef + year, data = f1_final)
+step_model <- step(full_model, direction = "backward", trace = 0) # trace=0 suppresses output
+
+summary(step_model)
+
+# Residual Plots for the final model
+par(mfrow=c(2,2))
+plot(step_model)
+par(mfrow=c(1,1))
+
+# Interpretation:
+# - Intercept: Baseline finish position.
+# - Grid: For every 1 spot further back on the grid, finish position increases by approx [coefficient].
+# - Constructor: Coefficients show difference relative to the reference team.
+# - Year: Effect of time on finish position (if significant).
+
+# --- 6. Advanced Technique: Binary Logistic Regression ---
+# Predict probability of finishing in the points (Top 10)
+log_model <- glm(in_points ~ grid + constructorRef, data = f1_final, family = "binomial")
+summary(log_model)
+
+# Interpretation of Odds Ratios
+odds_ratios <- exp(coef(log_model))
+cat("Odds Ratios:\n")
+print(odds_ratios)
+# Example: If Grid OR < 1, starting further back decreases odds of points.
+# Example: If Mercedes OR > 1, being in Mercedes increases odds of points vs baseline team.
+```
+
+
+# Delete
+
+Permutation test
+We test if Max Verstappen's average finishing position is significantly better (lower) than the population mean using a permutation test.
+
+```{r}
+
+# Observed difference
+verstappen_mean <- mean(f1_clean$positionOrder[f1_clean$driverRef == "max_verstappen"])
+population_mean <- mean(f1_clean$positionOrder)
+obs_diff <- population_mean - verstappen_mean # Positive means Verstappen is faster (lower position)
+
+# Permutation loop
+set.seed(123)
+n_perms <- 2000
+perm_diffs <- numeric(n_perms)
+
+for(i in 1:n_perms) {
+  # Shuffle the driver labels
+  shuffled_drivers <- sample(f1_clean$driverRef)
+  
+  # Calculate mean for "fake" Hamiltons in this shuffled set
+  perm_verstappebn_mean <- mean(f1_clean$positionOrder[shuffled_drivers == "max_verstappen"])
+  perm_diffs[i] <- population_mean - perm_verstappebn_mean
+}
+
+# Calculate p-value
+p_val <- mean(perm_diffs >= obs_diff)
+print(paste("Observed Diff:", round(obs_diff, 2)))
+print(paste("P-value:", p_val))
+
+```
+
+
+##### Driver Quali vs Race Result Analysis
+Question: how strong does qualifying performance (grid) predict race performance (positionOrder) for specific drivers, and overall? 
+
+Driver 1: Lewis Hamilton
+```{r}
+
+driver_data_hamilton <- f1_clean %>% filter(driverRef == "hamilton")
+correlation <- cor(driver_data_hamilton$grid, driver_data_hamilton$positionOrder, use = "complete.obs")
+
+ggplot(driver_data_hamilton, aes(x = grid, y = positionOrder)) + 
+  geom_point(color = "lightblue", alpha = 0.6) +
+  geom_smooth(method = "lm", color = "orange", se = FALSE) +
+  labs(
+    title = paste("Qualifying vs. Race Result:", toupper("Lewis Hamilton")),
+    subtitle = paste("Correlation:", round(correlation, 2)),
+    x = "Starting Grid Position", 
+    y = "Finishing Position") +
+  theme_minimal()
+  
+```
+
+
+##### fastest average speed by circuit
+Question: which circuits are the fastest? speed distribution
+
+Fastest lap speed across all tracks
+```{r}
+
+
+# fastest lap speed comparison across all tracks
+f1_clean %>%
+  ggplot(aes(x = circuitId, y = fastestLapSpeed, fill = circuitId)) +
+  geom_boxplot(outlier.size = 0.5, alpha = 0.8) +
+  labs(title = "Fastest Lap Speed Comparison across tracks",
+       x = NULL,
+       y = "Fastest Lap Speed (km/h)") +
+  coord_flip() +
+  theme_minimal() +
+  theme(legend.position = "none",
+        axis.text.y = element_text(size = 6))
+```
+
+
+##### [explorative] f1dataR package 
+```{r}
+# install.packages("f1dataR")
+# library(f1dataR)
+
+if (!require("remotes")) install.packages("remotes")
+remotes::install_github("SCasanova/f1dataR")
+library(f1dataR)
+```
+
+Telemetry plotting
+```{r}
+get_driver_name()
+
+f1_laps <- load_laps(season = 2025, round = 15)
+f1_driver_telemetry <- load_driver_telemetry(season = "current", round = "last", session = "R", driver = "all", laps = "all")
+
+ham <- load_driver_telemetry(
+    season = 2023,
+    round = "Bahrain",
+    session = "Q",
+    driver = "HAM",
+    laps = "fastest"
+  )
+ham <- load_driver_telemetry(2022, 1, "Q", driver = "HAM", laps = "fastest")
+per <- load_driver_telemetry(2022, 1, "Q", driver = "PER", laps = "fastest")
+
+telem <- bind_rows(lec, ham, per) %>%
+  select(rpm, speed, n_gear, throttle, brake, drs, distance, time, driver_code) %>%
+  mutate(drs = ifelse(drs == 12, 1, 0))
+
+drivercolours <- c(
+  "LEC" = get_driver_color("LEC", 2022, 1),
+  "HAM" = get_driver_color("HAM", 2022, 1),
+  "PER" = get_driver_color("PER", 2022, 1)
+)
+```
+
+
