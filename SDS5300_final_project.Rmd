@@ -75,14 +75,14 @@ f1_data <- f1_results %>%
   left_join(f1_drivers, by = "driverId") %>%
   left_join(f1_constructors, by = "constructorId") %>% 
   left_join(f1_pit_summary, by = c("raceId", "driverId")) %>% 
-  rename(driver_nationality = nationality.x, constructor_nationality = nationality.y) %>% 
-  dplyr::select(raceId, year, round, driverId, circuitId, grid, positionOrder, points, 
+  rename(driver_nationality = nationality.x, constructor_nationality = nationality.y,
+         race_name = name.x, constructor_name = name.y) %>% 
+  dplyr::select(raceId, year, round, driverId, circuitId, race_name, grid, positionOrder, points, 
          driverRef, constructorRef, driver_nationality, constructor_nationality,
          statusId, laps, fastestLapSpeed, fastestLapTime, fastestLap, dob, milliseconds, round, duration) 
 
 # f1_driver_standings <- f1_driver_standings %>% 
 #   left_join(f1_drivers, by = "driverId")
-
 
 ```
 
@@ -104,10 +104,12 @@ f1_clean <- f1_data %>%
          fastestLapSpeed = as.numeric(as.character(fastestLapSpeed)),
          age = year - as.numeric(substr(dob, 1, 4)),
          positionOrder = positionOrder,
+         fastestLapTime = as.numeric(ms(f1_clean$fastestLapTime))
          ) %>% 
   # missing values
   drop_na(grid, positionOrder)
   
+
 # dim(f1_clean)
 # str(f1_clean)
 # head(f1_clean)
@@ -121,39 +123,6 @@ f1_clean <- f1_data %>%
 - Scatterplot 
 - Q-Q plot 
 
-```{r}
-par(mfrow=c(2,2)) # Set up a 2x2 plotting grid
-
-# 1. Histogram: Distribution of Fastest Lap Speeds
-hist(f1_clean$fastestLapSpeed, 
-     main = "Histogram of Fastest Lap Speeds", 
-     xlab = "Speed (km/h)", col = "skyblue", border = "white")
-
-# 2. Boxplot: Starting Grid Position vs. Did they Score Points?
-boxplot(grid ~ is_points, data = f1_clean,
-        main = "Grid Position vs. Points Finish",
-        xlab = "Scored Points (0=No, 1=Yes)", ylab = "Grid Position",
-        col = c("lightcoral", "lightgreen"))
-
-
-boxplot(grid ~ driverRef , data = f1_clean,
-        main = "Grid Position vs. Points Finish",
-        xlab = "Scored Points (0=No, 1=Yes)", ylab = "Grid Position",
-        col = c("lightcoral", "lightgreen"))
-
-# 3. Scatterplot: Grid Position vs. Finishing Position
-plot(f1_clean$grid, f1_clean$positionOrder,
-     main = "Scatterplot: Grid vs. Finish",
-     xlab = "Starting Grid Position", ylab = "Finishing Position",
-     pch = 19, col = rgb(0,0,0,0.2)) # Use alpha for overlapping points
-
-# 4. Normal Quantile Plot (QQ Plot)
-# Checking if Lap Speeds are normally distributed
-qqnorm(f1_clean$fastestLapSpeed, main = "QQ Plot: Lap Speeds")
-qqline(f1_clean$fastestLapSpeed, col = "red")
-
-par(mfrow=c(1,1)) # Reset plot window
-```
 
 
 
@@ -555,6 +524,40 @@ print(paste("P-value:", p_val))
 ```
 
 
+##### plot
+```{r}
+par(mfrow=c(2,2)) 
+
+# 1. Histogram: Distribution of Fastest Lap Speeds
+hist(f1_clean$fastestLapSpeed, 
+     main = "Histogram of Fastest Lap Speeds", 
+     xlab = "Speed (km/h)", col = "skyblue", border = "white")
+
+# 2. Boxplot: Starting Grid Position vs. Did they Score Points?
+boxplot(grid ~ is_points, data = f1_clean,
+        main = "Grid Position vs. Points Finish",
+        xlab = "Scored Points (0=No, 1=Yes)", ylab = "Grid Position",
+        col = c("lightcoral", "skyblue"))
+
+
+boxplot(grid ~ driverRef , data = f1_clean,
+        main = "Grid Position vs. Points Finish",
+        xlab = "Scored Points (0=No, 1=Yes)", ylab = "Grid Position",
+        col = c("lightcoral", "skyblue"))
+
+# 3. Scatterplot: Grid Position vs. Finishing Position
+plot(f1_clean$grid, f1_clean$positionOrder,
+     main = "Scatterplot: Grid vs. Finish",
+     xlab = "Starting Grid Position", ylab = "Finishing Position",
+     pch = 19, col = rgb(0,0,0,0.2)) 
+
+# 4. Normal Quantile Plot (QQ Plot)
+# Checking if Lap Speeds are normally distributed
+qqnorm(f1_clean$fastestLapSpeed, main = "QQ Plot: Lap Speeds")
+qqline(f1_clean$fastestLapSpeed, col = "red")
+
+```
+
 ##### Driver Quali vs Race Result Analysis
 Question: how strong does qualifying performance (grid) predict race performance (positionOrder) for specific drivers, and overall? 
 
@@ -586,7 +589,7 @@ Fastest lap speed across all tracks
 
 # fastest lap speed comparison across all tracks
 f1_clean %>%
-  ggplot(aes(x = circuitId, y = fastestLapSpeed, fill = circuitId)) +
+  ggplot(aes(x = race_name, y = fastestLapSpeed, fill = race_name)) +
   geom_boxplot(outlier.size = 0.5, alpha = 0.8) +
   labs(title = "Fastest Lap Speed Comparison across tracks",
        x = NULL,
