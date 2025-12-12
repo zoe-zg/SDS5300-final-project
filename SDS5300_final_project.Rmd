@@ -10,14 +10,14 @@ This analysis focuses on the **modern era** (2010 - 2024) of Formula 1 racing. T
 
 - **Technical Regulations**: Introduction of hybrid power units (2014), DRS (Drag Reduction System), and increased emphasis on aerodynamics
 - **Dominant Teams**: The rise of Mercedes' dominance, Red Bull's continued success, and Ferrari's competitive resurgence
-- **Driver Talent**: Era featuring champions like Hamilton, Vettel, Rosberg, and emerging stars
+- **Driver Talent**: Era featuring champions like Hamilton, Alonso, Vettel, Verstappen, and emerging stars
 - **Competition Evolution**: More sophisticated data analytics and race strategy
 
 
 We investigate factors that influence race performance (specifically, race finishing positions and fastest lap speed) in this modern competitive landscape. We are interested in whether race outcomes are driven more by the driver or the constructor. Specifically, we looked at
 
 - whether the finishing positions differ significantly different between British and German drivers (Britain and Germany have the most F1 drivers)
-- whether Fernando Alonso’s finishing positions differ between his tenures at Ferrari and Renault (Alonso has the longest career in this era and is a top performing driver)
+- whether Fernando Alonso’s finishing positions differ between his career at Ferrari and Renault (Alonso has the longest career in this era and is a top performing driver)
 - whether the fastest lap speed differ significantly among top constructors (i.e. Ferrari, Mercedes, McLaren, Red Bull)
 - and fit a multiple linear regression model to predict the race finishing positions.
 
@@ -27,7 +27,7 @@ We investigate factors that influence race performance (specifically, race finis
 knitr::opts_chunk$set(
 	message = FALSE,
 	warning = FALSE,
-	include = FALSE
+	echo = FALSE
 )
 # load library
 library(tidyverse)
@@ -143,9 +143,9 @@ head(f1_clean)
 
 
 
-# A sneak peek into the rivals
+# 🏁 A sneak peek into the rivals
 
-## British vs German drivers
+#### British vs German drivers
 Here we compare the race finishing positions between British and German drivers from the two most dominant countries in F1 racing and in automobile.
 By visual inspection, we can see clear mean race finishing positions between these two countries, with British drivers having a better race finishing results (finishing position lower is better).
 
@@ -245,11 +245,15 @@ paste0("The permuted p-value is ",  mean(abs(diffvals) >= abs(diff_obs)), ".")
 ```
 
 
+# 🏁 Driver or Car? 
 
+In this section, we attampt to disentangle driver skill from machine performance. We compared Alonso's qualifying to race results across his two teams eras using side-by-side scatterplots and correlation.
 
+#### Alonso's Perormance at Ferrari vs McLaren
 
+To assess the impact of race car performance on driver results, we subsetted the data to isolate Fernando Alonso's career at two major contructors: Ferrari and McLaren. The boxplot below displays the distribution of his finishing positions at both teams.
 
-## Alonso finishing positions different at Ferrari vs Renault
+Visually, there is a marked contrast between the two periods: Alonso's median finishing position was significantly lower (better) at Ferrari than that at McLaren.There is also a tighter interquartile range at Ferrari than McLaren, indicating consistent top performance with Ferrari. In contrast, his race performance at McLaren also shows increased variability, likely reflecting the constructor mechanical reliability issues during those seasons.
 
 
 ```{r echo= FALSE}
@@ -259,12 +263,34 @@ f1_alonso_test <- f1_clean %>%
 
 boxplot(positionOrder ~ constructorRef,
         data = f1_alonso_test,
-        main = "Alonso Race Finishing Position at McLaren vs Ferrari",
+        main = "Alonso Race Finishing Position with McLaren vs Ferrari",
         ylab = "Finishing Position",
-        xlab = ""
-          )
+        col = c("#FF2800", "#00A0DF"),
+        border = "gray30",
+        xlab = "")
+
+ggplot(f1_alonso_test, aes(x = constructorRef, y = positionOrder, fill = constructorRef)) +
+  geom_boxplot(alpha = 0.7, width = 0.55, outlier.shape = NA) +
+  geom_jitter(width = 0.15, alpha = 0.5) +
+  scale_fill_manual(values = c("ferrari" = "#FF2800", "mclaren" = "#FF9800")) +
+  labs(
+    title = "Fernando Alonso Finishing Positions: McLaren vs Ferrari",
+    x = "",
+    y = "Finishing Position"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "none"
+  )
 ```
 
+After visualizing Alonso's finishing positions at both teams, we performed a two-sample t-test to determine whether the performance difference between his time at Ferrari and McLaren is statistically significant. And the test doesn't assume equal variance.
+
+$$H_0: There is no difference in the mean finishing position for Alonso between Ferrari and McLaren (\mu_{Ferrari} = \mu_{McLaren}) $$
+$$H_A: The mean finishing positions for Alonso at Ferrari and McLaren are significantly different (\mu_{Ferrari} \neq \mu_{McLaren}) $$
+
+The result shows a highly significant difference (p<.05) in Alonso's finishing positions between the two teams. The entire CI is well below zero, indicating that Alonso finished substantially better during his time at Ferrari compared to McLaren - a large performance difference between constructors. 
 
 
 ```{r echo=FALSE}
@@ -272,15 +298,16 @@ boxplot(positionOrder ~ constructorRef,
 ttest_alonso <- t.test(positionOrder ~ constructorRef, data = f1_alonso_test, conf.level = 0.95)
 ttest_alonso
 
-# p value lower than 0.01, CI doesn't include 0, reject null hypothesis, there is evidence of a difference between British and German drivers
 ```
+
+After a two-sample t-test, we computed a bootstrap CI for the difference in means of finishing positions at Ferrari vs. McLaren. The histogram shows an approximately bell-shaped distribution centered around –8 to –7, suggesting that Alonso typically finished 7–8 places better at Ferrari than McLaren. The 95% bootstrap CI [-9.27, -6.23] closely matches the t-test interval and the CI doesn't include zero, the result strongly indicates that Alonso's performance at Ferrari was consistently and significantly better than that at McLaren.
+
+The Q-Q plot of the bootstrap differences shows close alignment along the diagonal line with only mild deviations at the tails, suggesting the sampling distribution is Normal. Therefore, we can be confident that the results of our t-test and CI are valid and not distorted by skewness or outliers.
 
 
 ```{r}
-# To make grading easier, please leave the following line of code in your assignment
 set.seed(230) 
 
-# FILL IN REMAINING CODE
 n_samp <- 10000
 
 diff_alonso <- rep(NA, n_samp)
@@ -293,21 +320,33 @@ for (i in 1:n_samp) {
   diff_alonso[i] <- mean(ferrari) - mean(mclaren)
 }
 
-# Calculate a 99% Bootstrap confidence interval. Show your results rounded to two decimal places
-ci <- quantile(diff_alonso, c(0.005, 0.995))
-round(ci, 2)
+# calculate 95% CI
+ci <- quantile(diff_alonso, c(0.025, 0.975))
+# round(ci, 2)
 
+par(mfrow = c(1, 2))
 # Histogram of bootstrap difference in means and add CI lines
-hist(diff_alonso, col = "grey", main = "Bootstrapped Sample Means Diff in Race Finishing Position", xlab = "Race Finishing Position", breaks = 50)
-
-abline(v = ci, lwd = 3, col = "orange")
-abline(v = ttest_alonso$conf.int, lwd = 3, col = "pink", lty = 2)
-legend("topright", c("Theoretical CI","Bootstrap CI"), lwd = 3, col = c("pink","orange"), lty = c(2,1))
+hist(diff_alonso, col = "grey", border = "white", 
+     main = "Bootstrap dist in Race Finishing Position\n(Ferrari - McLaren)", xlab = "Diff in Race Finishing Position", 
+     breaks = 50)
+abline(v = ci, lwd = 2, col = "darkred")
+abline(v = ttest_alonso$conf.int, lwd = 2, col = "navy", lty = 2)
+legend("topleft", c("Bootstrap CI", "Theoretical CI"), lwd = 2, col = c("darkred","navy"), lty = c(2,1), bty = "n", cex = 0.7)
 
 
 # Normal Q-Q plot of bootstrapped differences
-qqPlot(diff_alonso, main = "Normal Q-Q Plot of Bootstrap Differences")
+qqPlot(diff_alonso, 
+       main = "Normal Q-Q Plot of Bootstrap Difference",
+       ylab = "Bootstrap difference",
+       id = FALSE,
+       grid = FALSE
+       )
+
+
 ```
+
+
+The permutation test was performed with 10,000 simulations. The observed difference in mean (blue dotted line) falls outside the range of the permuted null distribution, suggesting that the probability of observing such a performance gap by random chance is effectively zero. This result corroborates our t-test and bootstrap findings; Alonso's superior performance at Ferrari compared to McLaren was statistically significant and not due to random chance.
 
 
 ```{r echo=FALSE}
@@ -320,18 +359,18 @@ diffvals <- rep(NA, N)
 # assign countries at random to each group, compute statistic and store
 for (i in 1:N) {
   shuffled_team <- sample(f1_alonso_test$constructorRef)  # default is replace = FALSE
-  diffvals[i] <- as.numeric(mean(f1_alonso_test$positionOrder[shuffled_team == "mclaren"], na.rm = T) -  mean(f1_alonso_test$positionOrder[shuffled_team == "ferrari"], na.rm = T))
+  diffvals[i] <- as.numeric(mean(f1_alonso_test$positionOrder[shuffled_team == "ferrari"], na.rm = T) -  mean(f1_alonso_test$positionOrder[shuffled_team == "mclaren"], na.rm = T))
 }
 
 # observed difference in means 
-diff_obs <- mean(f1_alonso_test$positionOrder[f1_alonso_test$constructorRef == "mclaren"], na.rm = T) -
-  mean(f1_alonso_test$positionOrder[f1_alonso_test$constructorRef == "ferrari"], na.rm = T)
+diff_obs <- mean(f1_alonso_test$positionOrder[f1_alonso_test$constructorRef == "ferrari"], na.rm = T) -
+  mean(f1_alonso_test$positionOrder[f1_alonso_test$constructorRef == "mclaren"], na.rm = T)
 
 # make histogram of permuted mean differences
 hist(diffvals, 
      main = "Permuted sample mean difference in finishing position", 
      xlab = "Finishing position",
-     xlim = c(-6,6),
+     xlim = c(-10,10),
      col = "lightgrey",
      breaks = 50)
 abline(v = diff_obs, col = "blue", lwd = 3, lty = "dotted")
@@ -339,30 +378,83 @@ text(diff_obs - 0.2, 1500 , paste("Actual Diff in Means =", round(diff_obs,2)), 
 
 ```
 
+We compared Fernando Alonso's Qualifying vs Race results at Ferrari and McLaren. In the left plot Ferrari Era, the points are densely clustered in the bottom-left corner, suggesting his frequent ability to gain positions. It also shows a positive correlation between race start position and end position. In the right plot the McLaren era, the distribution is more spread out and shifts significantly to the upper right corner. This suggests the car's higher variability, unpredictability issue. There are also more points above the dashed line. We can infer that the car's technical limitations was causing the poorer performance, starting in the midfield and finished worse.  
 
-###### 1) Alonso: quali vs. race result
+
 ```{r echo=FALSE}
 f1_alonso <- f1_data[f1_data$driverRef == "alonso", ]
 
-ggplot(f1_alonso, aes( x = grid, y = positionOrder)) +
-  geom_jitter(color = "lightblue", alpha = 0.6, size = 4) + 
-  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "grey50") +
-  geom_smooth(method = "lm", color = "black", se = FALSE, size = 0.5) +
-  scale_x_continuous(breaks = seq(0, 20, 5)) +
-  scale_y_continuous(breaks = seq(0, 20, 5)) +
-  labs(title = "Qualifying vs. Race Results: Fernando Alonso",
-       subtitle = "Points below the dashed line indicate positions gained during the race",
-       x = "Starting Grid Position",
-       y = "Finishing Position") +
-    theme_linedraw()
+f1_alonso_ferrari <- f1_alonso_test %>% filter(constructorRef == "ferrari")
+f1_alonso_mclaren <- f1_alonso_test %>% filter(constructorRef == "mclaren")
+
+par(mfrow = c(1, 2))
+# ggplot(f1_alonso_ferrari, aes( x = grid, y = positionOrder)) +
+#   geom_jitter(color = "darkred", alpha = 0.6, size = 4) +
+#   geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "grey50") +
+#   # geom_smooth(method = "lm", color = "red", se = FALSE, size = 0.5) +
+#   scale_x_continuous(breaks = seq(0, 20, 5)) +
+#   scale_y_continuous(breaks = seq(0, 20, 5)) +
+#   labs(title = "Alonso at Ferrari",
+#        subtitle = "Points below the dashed line indicate positions gained during the race",
+#        x = "Starting Grid Position",
+#        y = "Finishing Position") +
+#     theme_linedraw()
+# 
+# ggplot(f1_alonso_mclaren, aes( x = grid, y = positionOrder)) +
+#   geom_jitter(color = "orange", alpha = 0.6, size = 4) +
+#   geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "grey50") +
+#   # geom_smooth(method = "lm", color = "red", se = FALSE, size = 0.5) +
+#   scale_x_continuous(breaks = seq(0, 20, 5)) +
+#   scale_y_continuous(breaks = seq(0, 20, 5)) +
+#   labs(title = "Alonso at McLaren",
+#        subtitle = "Points below the dashed line indicate positions gained during the race",
+#        x = "Starting Grid Position",
+#        y = "Finishing Position") +
+#     theme_linedraw()
+
+
+plot(jitter(f1_alonso_ferrari$grid, amount = 0.2), 
+     jitter(f1_alonso_ferrari$positionOrder, amount = 0.2),
+     main = "Alonso at Ferrari",
+     sub = "Consistent Top Finishes", 
+     xlab = "Starting Grid Position",
+     ylab = "Finishing Position",
+     xlim = c(0, 22), 
+     ylim = c(0, 22),
+     pch = 19,
+     col = adjustcolor("darkred", alpha.f = 0.6), 
+     las = 1)
+abline(a = 0, b = 1, lty = 2, col = "grey50", lwd = 2)
+abline(lm(positionOrder ~ grid, data = f1_alonso_ferrari), col = "black", lwd = 2)
+grid() 
+
+
+# --- PLOT 2: ALONSO AT MCLAREN ---
+plot(jitter(f1_alonso_mclaren$grid, amount = 0.2), 
+     jitter(f1_alonso_mclaren$positionOrder, amount = 0.2),
+     main = "Alonso at McLaren",
+     sub = "High Variance & Struggles",
+     xlab = "Starting Grid Position",
+     ylab = "",                           # No Y label to save space
+     xlim = c(0, 22),
+     ylim = c(0, 22),
+     pch = 19,
+     col = adjustcolor("orange", alpha.f = 0.6),
+     las = 1)
+abline(a = 0, b = 1, lty = 2, col = "grey50", lwd = 2)
+abline(lm(positionOrder ~ grid, data = f1_alonso_mclaren), col = "black", lwd = 2)
+grid()
+
+
+# abline(lm(positionOrder ~ grid, data = f1_alonso_ferrari), col = "red")
 
 ```
 
 
+we calculated the Pearson correlation coefficient and fitted a simple linear regression model.
 
+The diagnostic plots (Residuals vs. Fitted) show no severe violations of linearity, confirming that starting position is a robust, though not exclusive, predictor of race results.
 
-
-###### 2) Correlation
 ```{r}
 
 # cor_est <- cor(f1_clean$grid, f1_clean$positionOrder)
@@ -400,10 +492,260 @@ myResPlots(lm_alonso, label = "")
 
 ```
 
+# 🏁 Constructor Rival
+#### Ferrari vs McLaren vs Mercedes vs Red Bull
 
-## More plots
+We wanted to look at how fastest lap speeds differed between the top four constructors (Merceds, Red Bull, Mclaren, Ferrari).
 
-The figure below includes the histgram plots of 
+```{r, echo = FALSE}
+
+f1_topCnstr <- f1_clean[f1_clean$constructorRef == "mercedes" | f1_clean$constructorRef == "red_bull" | f1_clean$constructorRef == "mclaren" | f1_clean$constructorRef == "ferrari", c("driverRef", "constructorRef","fastestLapSpeed")]
+
+#remove any unused levels
+f1_topCnstr$constructorRef <- droplevels(f1_topCnstr$constructorRef)
+
+#remove any rows with NA for fastestLapSpeed
+f1_topCnstr <- f1_topCnstr[is.na(f1_topCnstr$fastestLapSpeed) == FALSE, ]
+
+
+#gets list of mean fastest lap speed for each constructor
+meanscn <- by(f1_topCnstr$fastestLapSpeed, f1_topCnstr$constructorRef, mean)
+boxplot(f1_topCnstr$fastestLapSpeed ~ f1_topCnstr$constructorRef, col = c(colors()[465:469]), xlab = "Constructor", ylab = "Fastest Lap Speed (kph)", main = "Boxplots of Fastest Lap Speed for Different Constructors", cex.axis = .75, las = 1)
+points(c(1:4), meanscn, col = "red", pch = 19)
+text(x = 1:4, y = meanscn + 10, labels = paste0("Mean = ", round(meanscn, 2)), col    = "black")
+
+
+```
+
+After looking at this data, we were curious if the differences between the mean fastest lap speed of each group were significant. To do this, we need to perform one way ANOVA, but first we need to look and see if it appears that the basic assumptions of ANOVA are met:
+1) All data is taken from populations which have normal distributions
+2) These normal distributions may have different means but have
+identical standard deviation : i.e., variance is constant in all groups
+3) All observations are independent
+
+```{r}
+
+#generating histograms
+for (i in unique(f1_topCnstr$constructorRef)) {
+  hist(f1_topCnstr[f1_topCnstr$constructorRef == i, "fastestLapSpeed"], xlab = i)
+}
+
+#generating normal quantile plots
+for (i in unique(f1_topCnstr$constructorRef)) {
+  qqp(f1_clean[f1_topCnstr$constructorRef == i, "fastestLapSpeed"], xlab = i)
+}
+
+#comparing standard deviations (goal is ratio is ~2)
+sdscn <- by(f1_topCnstr$fastestLapSpeed, f1_topCnstr$constructorRef, sd)
+max(sdscn)/min(sdscn) #1.025 BASICALLY EQUAL VARIANCE!!!
+
+
+
+
+```
+
+
+It looks like the assumptions are met: (normality of data, constant variance, independence)
+
+
+```{r}
+
+
+aovcn <- aov(f1_topCnstr$fastestLapSpeed ~ f1_topCnstr$constructorRef)
+summary(aovcn) #degrees of freedom is 10, which is expected
+
+#making a linear model, not sure if we actually do this
+modcn <- lm(f1_topCnstr$fastestLapSpeed ~ f1_topCnstr$constructorRef -1)
+summary(modcn)
+
+library(plotrix)
+
+CIscn <- confint(modcn)
+round(CIscn, 2)
+coefscn <- coef(modcn)
+coefscn
+
+par(mar=c(5,8,4,2))
+plotCI(coefscn, 1:(length(coefscn)), ui = CIscn[,2], li = CIscn[,1], axes = FALSE,
+err = "x", ylab = "", xlab = "Mean (and 95% CI)", main = "Mean and CI's for
+\nFastest Lap Speed by Constructor", lwd = 2, col = "blue")
+axis(side = 1)
+axis(side = 2, at = 1:(length(coefscn)), label=levels(as.factor(f1_topCnstr$constructorRef)),las=2)
+
+## Don't conclude anything from confidence intervals overlapping
+
+#USING multiple comparisons to see which means are different 
+pairwise.t.test(f1_topCnstr$fastestLapSpeed, f1_topCnstr$constructorRef) 
+#nothing is significant
+
+#same as above
+TukeyHSD(aovcn)
+par(mar = c(5, 11, 4, 1))
+plot(TukeyHSD(aovcn), las = 1)
+
+
+
+#RESIDUAL PLOTS!!!
+library(car)
+
+rsmfcn <- rstudent(aovcn)
+fitvcn <- fitted(aovcn)
+plot(rsmfcn ~ fitvcn,
+pch = 19,
+col = colors()[36],
+main = "Studentized Residuals vs Fits, \nlog(Percent Return) by Movie
+Genre",
+ylim = c(-3.5, 3.5),
+xlab = "Fits",
+ylab = "Studentized Residuals")
+abline(h = c(-2, 2), lty = 2, col = "forestgreen", lwd = 3)
+abline(h = c(-3, 3), lty = 3, col = "goldenrod1", lwd = 3)
+abline(h = 0, lty = 5 , col = "black", lwd = 3)
+
+qqPlot(rsmfcn,
+pch = 19,
+main = "NQ Plot of Studentized Residuals, \nMean Finishing Position by Constructor Nationality")
+
+
+
+###################### Assumes samples are taken from a normal distribution but have unequal variances
+#Bartlett test 
+bartlett.test(f1_topCnstr$fastestLapSpeed, f1_topCnstr$constructorRef)
+#p-value = .9179 so the variances are the same (bc no evidence of difference)
+
+
+#Levene's test No assumptions about normality
+leveneTest(f1_topCnstr$fastestLapSpeed, f1_topCnstr$constructorRef)
+#p-value = .9886 so the variances are the same (bc no evidence of difference)
+
+
+
+
+###Welch's ANOVA (unequal variances but normally distributed data in each group) --> should just use regular anova bc qual variance
+oneway.test(f1_topCnstr$fastestLapSpeed ~ f1_topCnstr$constructorRef, data = f1_topCnstr)
+#we fail to reject the null hypothesis so there is no evidence of difference between means
+
+
+##kruskal wallis (no assumptions about variance or normality)
+kruskal.test(f1_topCnstr$fastestLapSpeed ~ f1_topCnstr$constructorRef, data = f1_topCnstr)
+#once again fail to reject null hypothesis
+
+
+
+
+```
+
+
+
+# 🏁 Race Result Model
+
+```{r echo=FALSE}
+
+
+#make a subset with top drivers with over 200 data points
+f1_topDrive <- f1_clean %>%
+  filter(driverRef %in% c("hamilton", "alonso", "max_verstappen", "vettel", "sainz"))
+#f1_topDrive <- f1_clean[f1_clean$driverRef == "hamilton" | f1_clean$driverRef == "alonso" | f1_clean$driverRef == #"max_verstappen" | f1_clean$driverRef == "vettel" | f1_clean$driverRef == "sainz", ]
+
+
+# REMEMBER NO YEAR IS INCLUDED BC OF PERFECT COLLINEARITY WITH AGE
+lm1 <- lm(positionOrder ~ grid + constructorRef + fastestLapSpeed + fastestLapTime + duration + age + fastestLap + driverRef, data = f1_topDrive)
+summary(lm1)
+
+#drop duration
+lm2 <- lm(positionOrder ~ grid + constructorRef + fastestLapSpeed + fastestLapTime + age + fastestLap + driverRef, data = f1_topDrive)
+summary(lm2)
+
+#drop age
+lm3 <- lm(positionOrder ~ grid + constructorRef + fastestLapSpeed + fastestLapTime + fastestLap + driverRef, data = f1_topDrive)
+summary(lm3)
+#TALK ABOUT FASTEST LAP!!! (faster lap later in the race = better finishing positions (negative coeffcient))
+
+Anova(lm3, type = "III")
+
+
+rsmf20 <- rstudent(lm3)
+fitv20 <- fitted(lm3)
+plot(rsmf20 ~ fitv20,
+pch = 19,
+col = colors()[36],
+main = "Studentized Residuals vs Fits, \nlog(finish position) predicted by grid + constructorRef + fastestLapSpeed + fastestLapTime + fastestLap + driverRef",
+ylim = c(-3.5, 3.5),
+xlab = "Fits",
+ylab = "Studentized Residuals")
+abline(h = c(-2, 2), lty = 2, col = "forestgreen", lwd = 3)
+abline(h = c(-3, 3), lty = 3, col = "goldenrod1", lwd = 3)
+abline(h = 0, lty = 5 , col = "black", lwd = 3)
+
+qqPlot(rsmf20,
+pch = 19,
+main = "NQ Plot of Studentized Residuals, \nMean Finishing Position by grid + constructorRef + fastestLapSpeed + fastestLapTime + fastestLap + driverRef")
+
+
+##############################################################################################################
+
+#BOX COX
+
+trans1 <- boxCox(lm1)
+trans1
+#Figure out what value of lambda (x) gives max value of log-liklihood (y)
+trans1$x[which.max(trans1$y)]
+#looks to be around .2, which we say is close enough to 0 so we do log
+
+
+##############################################################################################################
+
+
+#Do log now
+
+
+# REMEMBER NO YEAR IS INCLUDED BC OF PERFECT COLLINEARITY WITH AGE
+lm1lg <- lm(log(positionOrder) ~ grid + constructorRef + fastestLapSpeed + fastestLapTime + duration + age + fastestLap + driverRef, data = f1_topDrive)
+summary(lm1lg)
+
+#drop duration
+lm2lg <- lm(log(positionOrder) ~ grid + constructorRef + fastestLapSpeed + fastestLapTime + age + fastestLap + driverRef, data = f1_topDrive)
+summary(lm2lg)
+
+#drop age
+lm3lg <- lm(log(positionOrder) ~ grid + constructorRef + fastestLapSpeed + fastestLapTime + fastestLap + driverRef, data = f1_topDrive)
+summary(lm3lg)
+#TALK ABOUT FASTEST LAP!!! (faster lap later in the race = better finishing positions (negative coeffcient))
+
+
+## overall test if our predictors are significant (they are!!!!!!!!!!!!!!!)
+Anova(lm3lg, type = "III")
+
+
+#residual plots
+rsmf20lg <- rstudent(lm3lg)
+fitv20lg <- fitted(lm3lg)
+plot(rsmf20 ~ fitv20,
+pch = 19,
+col = colors()[36],
+main = "Studentized Residuals vs Fits, \nlog(finish position) predicted by grid + constructorRef + fastestLapSpeed + fastestLapTime + fastestLap + driverRef",
+ylim = c(-3.5, 3.5),
+xlab = "Fits",
+ylab = "Studentized Residuals")
+abline(h = c(-2, 2), lty = 2, col = "forestgreen", lwd = 3)
+abline(h = c(-3, 3), lty = 3, col = "goldenrod1", lwd = 3)
+abline(h = 0, lty = 5 , col = "black", lwd = 3)
+
+qqPlot(rsmf20lg,
+pch = 19,
+main = "NQ Plot of Studentized Residuals, \nMean Finishing Position by Constructor ")
+
+
+
+
+
+```
+
+
+
+# 🏁 A Closer Looks
+
+In this section, we included histgrams and QQ plots for
 - fastest lap speed
 - driver's age
 - fastest lap time
@@ -449,7 +791,6 @@ hist(f1_clean_pit$duration,
 
 ```
 
-##### Q-Q normal quantile plot
 
 ```{r echo=FALSE}
 
@@ -481,16 +822,12 @@ qqPlot(log10(f1_clean_pit$duration),
 
 
 
-# A closer look
-## [ANOVA] Ferrari vs Red Bull vs McLaren vs Mercedes
 
 
 
+# 🏁 Summary
 
-
-
-## [Multiple Linear Regression] positionOrder ~ a+b+c+d
-
+We have strong statistical evidence to suggest that Alonso’s average finishing position was significantly better at Ferrari than at McLaren.
 
 
 # TBD
